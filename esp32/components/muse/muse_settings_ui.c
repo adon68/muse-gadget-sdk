@@ -87,7 +87,7 @@ static int64_t s_forget_armed_us;
 static char s_join_ssid[MUSE_SSID_MAX + 1];
 
 /* Hatch page. */
-static lv_obj_t *s_hatch_status, *s_hatch_host, *s_hatch_vm, *s_hatch_token;
+static lv_obj_t *s_hatch_status, *s_hatch_host, *s_hatch_vm, *s_hatch_token, *s_proxy_dns;
 static lv_obj_t *s_link_status, *s_link_reset_lbl;
 static int64_t s_link_reset_armed_us;
 
@@ -853,6 +853,16 @@ static void on_hatch_token(lv_event_t *e)
     open_text("Device token", "", true, MUSE_TOKEN_MAX, "Empty keeps the current one", on_hatch_token_done, s_hatch);
 }
 
+static void on_proxy_dns_done(const char *text) { muse_settings_set_proxy_dns(text); }
+
+static void on_proxy_dns(lv_event_t *e)
+{
+    (void)e;
+    char ip[16];
+    muse_settings_proxy_dns(ip);
+    open_text("Relay server IP", ip, false, 15, "Empty = direct connection", on_proxy_dns_done, s_hatch);
+}
+
 static void on_hatch_test(lv_event_t *e)
 {
     (void)e;
@@ -884,6 +894,7 @@ static void build_hatch_page(lv_obj_t *tile)
     row(list, NULL, "Server", &s_hatch_host, on_hatch_host, NULL);
     row(list, NULL, "VM ID", &s_hatch_vm, on_hatch_vm, NULL);
     row(list, NULL, "Device token", &s_hatch_token, on_hatch_token, NULL);
+    row(list, NULL, "Relay server IP", &s_proxy_dns, on_proxy_dns, NULL);
     button(list, "Test connection", COLOR_ACCENT, on_hatch_test, NULL);
     note(list, "Pair with the Muse app to use your account; a device token here overrides it, and a long one is "
                "easier to send over Bluetooth. The VM ID picks one of your VMs. "
@@ -917,6 +928,9 @@ static void tick_hatch(void)
     size_t n = muse_settings_hatch_token_len();
     snprintf(buf, sizeof(buf), n ? "Set (%u chars)" : "Not set", (unsigned)n);
     set_text(s_hatch_token, buf);
+    char relay[16];
+    muse_settings_proxy_dns(relay);
+    set_text(s_proxy_dns, relay[0] ? relay : "Not set");
 }
 
 /* ---------- Bluetooth ---------- */
