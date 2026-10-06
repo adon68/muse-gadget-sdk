@@ -15,6 +15,7 @@
  */
 
 #include "wifi_mgr.h"
+#include "muse_settings.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -190,6 +191,20 @@ static void event_handler(void *arg, esp_event_base_t base,
         s_retry = 0;
         s_keep_connected = true;
         s_reconnect_backoff_ms = RECONNECT_BACKOFF_MIN_MS;  // reset on success
+        /* Optional relay: point DNS at our own server so Meta domains resolve
+         * to the relay (works behind firewalls and on foreign networks). */
+        char relay_ip[16];
+        muse_settings_proxy_dns(relay_ip);
+        if (relay_ip[0]) {
+            esp_netif_dns_info_t di = { 0 };
+            di.ip.type = ESP_IPADDR_TYPE_V4;
+            di.ip.u_addr.ip4.addr = esp_ip4addr_aton(relay_ip);
+            if (esp_netif_set_dns_info(s_sta_netif, ESP_NETIF_DNS_MAIN, &di) == ESP_OK) {
+                ESP_LOGI(TAG, "DNS overridden -> %s", relay_ip);
+            } else {
+                ESP_LOGW(TAG, "DNS override to %s failed", relay_ip);
+            }
+        }
         xEventGroupSetBits(s_events, BIT_CONNECTED | BIT_GOT_IP);
     }
 }
