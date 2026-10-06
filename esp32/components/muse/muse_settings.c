@@ -44,6 +44,7 @@ static struct {
     char host[MUSE_HOST_MAX + 1];
     char vm[MUSE_VM_MAX + 1];
     char token[MUSE_TOKEN_MAX + 1];
+    char proxy_dns[16];
 } s = {
     .volume = CONFIG_MUSE_DEFAULT_VOLUME,
     .speaker_on = true,
@@ -132,6 +133,7 @@ esp_err_t muse_settings_init(void)
     load_str("host", s.host, sizeof(s.host));
     load_str("vm", s.vm, sizeof(s.vm));
     load_str("token", s.token, sizeof(s.token));
+    load_str("proxy_dns", s.proxy_dns, sizeof(s.proxy_dns));
 
     s.volume = clampi(s.volume, 0, 100);
     s.mic_gain = clampi(s.mic_gain, 0, MUSE_MIC_GAIN_MAX);
@@ -189,6 +191,11 @@ size_t muse_settings_hatch_token_len(void)
     size_t n;
     LOCKED(n = strlen(s.token));
     return n;
+}
+
+void muse_settings_proxy_dns(char out[16])
+{
+    LOCKED(strlcpy(out, s.proxy_dns, 16));
 }
 
 void muse_settings_set_volume(int pct)
@@ -294,4 +301,13 @@ esp_err_t muse_settings_set_hatch_token(const char *token, bool append)
         notify(MUSE_SETTING_HATCH);
     }
     return err;
+}
+
+void muse_settings_set_proxy_dns(const char *ip)
+{
+    LOCKED({
+        strlcpy(s.proxy_dns, ip ? ip : "", sizeof(s.proxy_dns));
+        save_str("proxy_dns", s.proxy_dns);
+    });
+    notify(MUSE_SETTING_HATCH);
 }
