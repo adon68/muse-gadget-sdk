@@ -47,6 +47,7 @@ static EventGroupHandle_t s_events;
 static SemaphoreHandle_t s_scan_mutex = NULL;
 static SemaphoreHandle_t s_cache_mutex = NULL;
 static esp_netif_t *s_sta_netif;
+static bool s_dns_overridden = false;  // custom relay DNS currently applied
 static bool s_inited = false;
 static bool s_connecting = false;        // true during initial wifi_mgr_connect() call
 // The network wifi_mgr_connect() is joining, for status screens.
@@ -191,21 +192,59 @@ static void event_handler(void *arg, esp_event_base_t base,
         s_retry = 0;
         s_keep_connected = true;
         s_reconnect_backoff_ms = RECONNECT_BACKOFF_MIN_MS;  // reset on success
-        /* Optional relay: point DNS at our own server so Meta domains resolve
-         * to the relay (works behind firewalls and on foreign networks). */
-        char relay_ip[16];
-        muse_settings_proxy_dns(relay_ip);
-        if (relay_ip[0]) {
-            esp_netif_dns_info_t di = { 0 };
-            di.ip.type = ESP_IPADDR_TYPE_V4;
-            di.ip.u_addr.ip4.addr = esp_ip4addr_aton(relay_ip);
-            if (esp_netif_set_dns_info(s_sta_netif, ESP_NETIF_DNS_MAIN, &di) == ESP_OK) {
-                ESP_LOGI(TAG, "DNS overridden -> %s", relay_ip);
-            } else {
-                ESP_LOGW(TAG, "DNS override to %s failed", relay_ip);
-            }
-        }
+        wifi_mgr_apply_proxy_dns();
         xEventGroupSetBits(s_events, BIT_CONNECTED | BIT_GOT_IP);
+    }
+}
+
+void wifi_mgr_apply_proxy_dns(void) {
+    if (!s_inited || !s_sta_netif) return;
+
+    char relay_ip[16];
+    muse_settings_proxy_dns(relay_ip);
+
+    if (relay_ip[0]) {
+        uint32_t addr = esp_ip4addr_aton(relay_ip);
+        if (addr == 0) {
+            ESP_LOGW(TAG, "DNS override ignored: invalid IP '%s'", relay_ip);
+            return;
+        }
+        esp_netif_dns_info_t di = {0};
+        di.ip.type = ESP_IPADDR_TYPE_V4;
+        di.ip.u_addr.ip4.addr = addr;
+        esp_err_t main_err = esp_netif_set_dns_info(s_sta_netif, ESP_NETIF_DNS_MAIN, &di);
+        esp_err_t backup_err = esp_netif_set_dns_info(s_sta_netif, ESP_NETIF_DNS_BACKUP, &di);
+        if (main_err == ESP_OK && backup_err == ESP_OK) {
+            s_dns_overridden = true;
+            ESP_LOGI(TAG, "DNS overridden -> %s (main+backup)", relay_ip);
+        } else {
+            ESP_LOGW(TAG, "DNS override to %s failed (main=%s backup=%s)",
+                     relay_ip, esp_err_to_name(main_err), esp_err_to_name(backup_err));
+        }
+        return;
+    }
+
+    /* Empty setting: nothing to undo on a fresh GOT_IP (DHCP already filled DNS). */
+    if (!s_dns_overridden) return;
+
+    s_dns_overridden = false;
+    esp_netif_dns_info_t clear = {0};
+    clear.ip.type = ESP_IPADDR_TYPE_V4;
+    esp_netif_set_dns_info(s_sta_netif, ESP_NETIF_DNS_MAIN, &clear);
+    esp_netif_set_dns_info(s_sta_netif, ESP_NETIF_DNS_BACKUP, &clear);
+
+    if (!wifi_mgr_is_connected()) {
+        ESP_LOGI(TAG, "DNS override cleared (not connected; DHCP will refill on join)");
+        return;
+    }
+    esp_err_t stop_err = esp_netif_dhcpc_stop(s_sta_netif);
+    esp_err_t start_err = esp_netif_dhcpc_start(s_sta_netif);
+    if (start_err == ESP_OK) {
+        ESP_LOGI(TAG, "DNS override cleared; DHCP renewing (stop=%s)",
+                 esp_err_to_name(stop_err));
+    } else {
+        ESP_LOGW(TAG, "DNS clear renew failed (stop=%s start=%s)",
+                 esp_err_to_name(stop_err), esp_err_to_name(start_err));
     }
 }
 

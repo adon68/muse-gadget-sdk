@@ -59,6 +59,9 @@ command -v idf.py >/dev/null 2>&1 || { echo "idf.py not found; activate ESP-IDF 
 cd "$root"
 B=build-muse-$profile
 defaults="sdkconfig.defaults;devices/sdkconfig.muse;devices/sdkconfig.muse-$profile"
+if [ -f devices/sdkconfig.muse.token ]; then
+    defaults="$defaults;devices/sdkconfig.muse.token"
+fi
 if [ -n "${MUSE_BENCH:-}" ]; then
     B=$B-bench; defaults="$defaults;devices/sdkconfig.muse-bench"
 fi

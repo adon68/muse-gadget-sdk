@@ -34,6 +34,10 @@ void wifi_mgr_init(void);
 // is stable for the lifetime of the process.
 esp_netif_t *wifi_mgr_get_netif(void);
 
+// Apply (or clear) the optional relay DNS from muse_settings. Safe anytime after
+// wifi_mgr_init(); no-op when STA has no netif / is not up. Sets MAIN+BACKUP.
+void wifi_mgr_apply_proxy_dns(void);
+
 // Blocking connect. Returns true if associated + got IP within timeout_ms.
 bool wifi_mgr_connect(const char *ssid, const char *password, int timeout_ms);
 

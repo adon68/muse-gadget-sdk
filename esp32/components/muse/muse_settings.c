@@ -19,12 +19,17 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 
 #include "muse_link.h"
+
+/* Provided by main/wifi_mgr.c; applied after NVS save so a live
+ * STA picks up Relay IP without reconnecting. */
+extern void wifi_mgr_apply_proxy_dns(void);
 
 static const char *TAG = "muse_settings";
 
@@ -305,9 +310,36 @@ esp_err_t muse_settings_set_hatch_token(const char *token, bool append)
 
 void muse_settings_set_proxy_dns(const char *ip)
 {
+    char cleaned[16] = {0};
+    if (ip) {
+        while (*ip == ' ' || *ip == '\t') ip++;
+        size_t len = strnlen(ip, sizeof(cleaned));
+        while (len > 0 && (ip[len - 1] == ' ' || ip[len - 1] == '\t')) len--;
+        if (len >= sizeof(cleaned)) {
+            ESP_LOGW(TAG, "proxy_dns rejected: too long");
+            return;
+        }
+        if (len > 0) {
+            memcpy(cleaned, ip, len);
+            cleaned[len] = '\0';
+            for (size_t i = 0; cleaned[i]; i++) {
+                char c = cleaned[i];
+                if ((c < '0' || c > '9') && c != '.') {
+                    ESP_LOGW(TAG, "proxy_dns rejected: not IPv4");
+                    return;
+                }
+            }
+            if (esp_ip4addr_aton(cleaned) == 0) {
+                ESP_LOGW(TAG, "proxy_dns rejected: invalid/0.0.0.0");
+                return;
+            }
+        }
+    }
+
     LOCKED({
-        strlcpy(s.proxy_dns, ip ? ip : "", sizeof(s.proxy_dns));
+        strlcpy(s.proxy_dns, cleaned, sizeof(s.proxy_dns));
         save_str("proxy_dns", s.proxy_dns);
     });
     notify(MUSE_SETTING_HATCH);
+    wifi_mgr_apply_proxy_dns();
 }
